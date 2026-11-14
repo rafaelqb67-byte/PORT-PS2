@@ -22,14 +22,43 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Instalar Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Instalar NDK, CMake e build-tools
         run: |
-          sdkmanager "platforms;android-34" "build-tools;${ANDROID_BUILD_TOOLS_VERSION}"
-          sdkmanager "cmake;${ANDROID_CMAKE_VERSION}" || echo "cmake sera baixado pelo Gradle"
-          sdkmanager "ndk;${ANDROID_NDK_VERSION}" || echo "ndk sera baixado pelo Gradle"
+          SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKM" --licenses > /dev/null || true
+          "$SDKM" "platforms;android-34" "build-tools;${ANDROID_BUILD_TOOLS_VERSION}"
+          "$SDKM" "cmake;${ANDROID_CMAKE_VERSION}" || echo "cmake sera baixado pelo Gradle"
+          "$SDKM" "ndk;${ANDROID_NDK_VERSION}" || echo "ndk sera baixado pelo Gradle"
 
       - name: Clonar Play! com submodules
-        run: git clone --recurse-submodules https://github.c
+        run: git clone --recurse-submodules https://github.com/jpd002/Play-.git
+
+      - name: Compilar (release, somente arm64-v8a)
+        working-directory: Play-/build_android
+        run: |
+          chmod +x gradlew
+          echo "org.gradle.jvmargs=-Xmx4g" >> gradle.properties
+          echo "org.gradle.parallel=false" >> gradle.properties
+          ./gradlew assembleRelease --no-daemon --stacktrace \
+            -Pandroid.injected.build.abi=arm64-v8a
+
+      - name: Alinhar e assinar com chave de debug
+        run: |
+          BT="$ANDROID_HOME/build-tools/${ANDROID_BUILD_TOOLS_VERSION}"
+          UNSIGNED=$(find Play-/build_android -name "*release*.apk" | head -n 1)
+          echo "APK encontrado: $UNSIGNED"
+          keytool -genkeypair -v -keystore debug.keystore \
+            -storepass android -keypass android -alias androiddebugkey \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=Android Debug,O=Android,C=US"
+          "$BT/zipalign" -p -f 4 "$UNSIGNED" aligned.apk
+          "$BT/apksigner" sign --ks debug.keystore \
+            --ks-pass pass:android --key-pass pass:android \
+            --out Play-PS2-arm64-debugsigned.apk aligned.apk
+          "$BT/apksigner" verify Play-PS2-arm64-debugsigned.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Play-PS2-APK
+          path: Play-PS2-arm64-debugsigned.apk
+          if-no-files-found: error
