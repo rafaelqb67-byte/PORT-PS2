@@ -1,0 +1,32 @@
+name: Meu Emulador PS2 (APK)
+on: workflow_dispatch
+env:
+  NOME_APP: "Meu PS2"
+  ID_APP: "com.meuemulador.ps2"
+jobs:
+  android:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: platforms/android
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "17" }
+      - uses: android-actions/setup-android@v3
+      - name: Instalar NDK e CMake
+        run: yes | sdkmanager "ndk;28.2.13676358" "cmake;3.31.6" >/dev/null || true
+      - name: Baixar dependencias do shaderc
+        run: python3 app/src/main/cpp/3rdparty/shaderc/utils/git-sync-deps
+      - name: Rust para Android
+        run: rustup target add aarch64-linux-android
+      - name: Trocar o nome do app
+        run: sed -i "s|<string name=\"app_name\">ARMSX2</string>|<string name=\"app_name\">${NOME_APP}</string>|" app/src/main/res/values/strings.xml
+      - name: Compilar APK
+        run: ./gradlew :app:assembleGithubRelease -Parmsx2.applicationId=${ID_APP} --stacktrace
+      - uses: actions/upload-artifact@v4
+        with:
+          name: meu-emulador-ps2-arm64
+          path: platforms/android/app/build/outputs/apk/**/*.apk
